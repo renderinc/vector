@@ -103,6 +103,13 @@ pub struct Config {
     ))]
     extra_namespace_label_selector: String,
 
+    /// Specifies whether or not to enrich with namespace fields.
+    ///
+    /// This can be useful to make Vector not pull in namespaces to reduce load on
+    /// kube-apiserver and daemonset memory usage in clusters with  lots of namespaces.
+    ///
+    add_namespace_fields: bool,
+
     /// The name of the Kubernetes [Node][node] that is running.
     ///
     /// Configured to use an environment variable by default, to be evaluated to a value provided by
@@ -276,6 +283,7 @@ impl Default for Config {
         Self {
             extra_label_selector: "".to_string(),
             extra_namespace_label_selector: "".to_string(),
+            add_namespace_fields: true,
             self_node_name: default_self_node_name_env_template(),
             extra_field_selector: "".to_string(),
             auto_partial_merge: true,
@@ -537,6 +545,7 @@ struct Source {
     field_selector: String,
     label_selector: String,
     namespace_label_selector: String,
+    add_namespace_fields: bool,
     node_selector: String,
     self_node_name: String,
     include_paths: Vec<glob::Pattern>,
@@ -620,6 +629,7 @@ impl Source {
             field_selector,
             label_selector,
             namespace_label_selector,
+            add_namespace_fields: config.add_namespace_fields,
             node_selector,
             self_node_name,
             include_paths,
@@ -655,6 +665,7 @@ impl Source {
             field_selector,
             label_selector,
             namespace_label_selector,
+            add_namespace_fields,
             node_selector,
             self_node_name,
             include_paths,
@@ -706,26 +717,28 @@ impl Source {
 
         // -----------------------------------------------------------------
 
-        let namespaces = Api::<Namespace>::all(client.clone());
-        let ns_watcher = watcher(
-            namespaces,
-            watcher::Config {
-                label_selector: Some(namespace_label_selector),
-                list_semantic: list_semantic.clone(),
-                ..Default::default()
-            },
-        )
-        .backoff(watcher::default_backoff());
         let ns_store_w = reflector::store::Writer::default();
         let ns_state = ns_store_w.as_reader();
-        let ns_cacher = MetaCache::new();
+        if add_namespace_fields {
+            let namespaces = Api::<Namespace>::all(client.clone());
+            let ns_watcher = watcher(
+                namespaces,
+                watcher::Config {
+                    label_selector: Some(namespace_label_selector),
+                    list_semantic: list_semantic.clone(),
+                    ..Default::default()
+                },
+            )
+            .backoff(watcher::default_backoff());
+            let ns_cacher = MetaCache::new();
 
-        reflectors.push(tokio::spawn(custom_reflector(
-            ns_store_w,
-            ns_cacher,
-            ns_watcher,
-            delay_deletion,
-        )));
+            reflectors.push(tokio::spawn(custom_reflector(
+                ns_store_w,
+                ns_cacher,
+                ns_watcher,
+                delay_deletion,
+            )));
+        }
 
         // -----------------------------------------------------------------
 
