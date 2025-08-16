@@ -768,6 +768,7 @@ impl Source {
             ns_state.clone(),
             include_paths,
             exclude_paths,
+            add_namespace_fields,
         );
         let annotator = PodMetadataAnnotator::new(pod_state, pod_fields_spec, log_namespace);
         let ns_annotator =
@@ -865,11 +866,13 @@ impl Source {
             } else {
                 let namespace = file_info.as_ref().map(|info| info.pod_namespace);
 
-                if let Some(name) = namespace {
-                    let ns_info = ns_annotator.annotate(&mut event, name);
+                if add_namespace_fields {
+                    if let Some(name) = namespace {
+                        let ns_info = ns_annotator.annotate(&mut event, name);
 
-                    if ns_info.is_none() {
-                        emit!(KubernetesLogsEventNamespaceAnnotationError { event: &event });
+                        if ns_info.is_none() {
+                            emit!(KubernetesLogsEventNamespaceAnnotationError { event: &event });
+                        }
                     }
                 }
 
